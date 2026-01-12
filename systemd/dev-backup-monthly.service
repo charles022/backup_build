@@ -1,0 +1,6 @@
+[Unit]
+Description=Monthly dev backup
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/dev-backup ws run-month %i

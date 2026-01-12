@@ -1,0 +1,14 @@
+[paths]
+dataset = "/home/chuck/code"
+snapshots = "/home/chuck/snapshots"
+ls_root = "/srv/btrfs-backups/dev"
+
+[cloud]
+endpoint = "https://<ACCOUNT_ID>.r2.cloudflarestorage.com"
+bucket = "dev-backups"
+access_key = "<R2_ACCESS_KEY>"
+secret_key = "<R2_SECRET_KEY>"
+
+[crypto]
+age_public_key = "age1..."
+age_private_key_path = "/srv/btrfs-backups/dev/keys/ls_dev_backup.key"

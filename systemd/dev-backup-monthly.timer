@@ -1,0 +1,9 @@
+[Unit]
+Description=Monthly dev backup schedule
+
+[Timer]
+OnCalendar=monthly
+Persistent=true
+
+[Install]
+WantedBy=timers.target

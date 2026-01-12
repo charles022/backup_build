@@ -1,0 +1,37 @@
+# Rust build artifacts
+/target/
+**/target/
+
+# Cargo build outputs
+**/*.rlib
+**/*.rmeta
+**/*.d
+
+# Temporary files
+*~
+*.swp
+*.swo
+*.tmp
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Binaries and perf data
+*.exe
+*.out
+*.perf
+*.pdb
+
+# Local env/config overrides
+.env
+.env.*
+
+# Backup artifacts (if generated locally)
+/backups/
+

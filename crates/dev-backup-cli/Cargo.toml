@@ -21,3 +21,6 @@ path = "../dev-backup-storage"
 
 [dependencies.dev-backup-btrfs]
 path = "../dev-backup-btrfs"
+
+[dev-dependencies]
+tempfile = "3.10"

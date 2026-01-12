@@ -8,6 +8,7 @@ pub struct Config {
     pub paths: Paths,
     pub cloud: Option<Cloud>,
     pub crypto: Option<Crypto>,
+    pub remote: Option<Remote>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -29,6 +30,12 @@ pub struct Cloud {
 pub struct Crypto {
     pub age_public_key: Option<String>,
     pub age_private_key_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Remote {
+    pub ls_host: Option<String>,
+    pub ls_user: Option<String>,
 }
 
 impl Config {

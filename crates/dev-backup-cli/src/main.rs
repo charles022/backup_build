@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use dev_backup_btrfs as btrfs;
 use dev_backup_core::config::Config;
 use dev_backup_core::manifest::{ManifestRecord, ManifestStore};
+use dev_backup_core::policy::{decide_snapshot_type, PolicyInput, SnapshotDecision};
 use dev_backup_storage::artifact::{parse_artifact_filename, sha256_file, ArtifactType};
 use dev_backup_storage::cloud::{R2Client, R2Config};
 use std::collections::HashMap;
@@ -84,6 +85,16 @@ enum SyncCommand {
 #[derive(Subcommand)]
 enum WsCommand {
     RunMonth { label: String },
+    Request {
+        label: String,
+        parent: Option<String>,
+        #[arg(long)]
+        auto_parent: bool,
+        #[arg(long)]
+        ls_host: Option<String>,
+        #[arg(long)]
+        ls_user: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -100,8 +111,8 @@ async fn main() -> Result<()> {
         Command::Artifact { action } => artifact(&cli.config, action),
         Command::Restore { action } => restore(&cli.config, action),
         Command::Sync { action } => sync(&cli.config, action).await,
-        Command::Ws { action } => ws(action),
-        Command::Ls { action } => ls(action),
+        Command::Ws { action } => ws(&cli.config, action).await,
+        Command::Ls { action } => ls(&cli.config, action),
     }
 }
 
@@ -130,8 +141,10 @@ fn init(config_path: &str, target: InitTarget) -> Result<()> {
             let manifest_path = base.join("manifests/snapshots_v2.tsv");
             let store = ManifestStore::new(&manifest_path);
             store.ensure_initialized()?;
+            let private_key = base.join("keys/ls_dev_backup.key");
+            let public_key = base.join("keys/ls_dev_backup.pub");
+            ensure_age_keypair(&private_key, &public_key)?;
             println!("LS initialized at {}", base.display());
-            println!("TODO: generate age keypair in {}/keys", base.display());
         }
         InitTarget::Ws => {
             if !btrfs::is_btrfs_mount(&cfg.paths.dataset)? {
@@ -548,32 +561,400 @@ fn build_object_key(ls_root: &str, local_path: &Path) -> String {
     key.trim_start_matches('/').to_string()
 }
 
-fn ws(action: WsCommand) -> Result<()> {
+async fn ws(config_path: &str, action: WsCommand) -> Result<()> {
+    let cfg = load_config(config_path)?;
     match action {
-        WsCommand::RunMonth { .. } => Err(anyhow!("ws run-month not implemented")),
+        WsCommand::RunMonth { label } => ws_run_month(&cfg, &label).await,
+        WsCommand::Request {
+            label,
+            parent,
+            auto_parent,
+            ls_host,
+            ls_user,
+        } => ws_request(
+            &cfg,
+            config_path,
+            &label,
+            parent.as_deref(),
+            auto_parent,
+            ls_host,
+            ls_user,
+        )
+        .await,
     }
 }
 
-fn ls(action: LsCommand) -> Result<()> {
+fn ls(config_path: &str, action: LsCommand) -> Result<()> {
+    let cfg = load_config(config_path)?;
     match action {
-        LsCommand::Send { .. } => Err(anyhow!("ls send not implemented")),
+        LsCommand::Send { label, parent } => ls_send(&cfg, &label, parent.as_deref()),
     }
+}
+
+fn ls_send(cfg: &Config, label: &str, parent: Option<&str>) -> Result<()> {
+    let resolved_label = resolve_label_from_manifest(cfg, label)?;
+    if let Some(parent_label) = parent {
+        ensure_label(parent_label)?;
+    }
+
+    let snapshot_dir = format!("{}/restore/snapshots", cfg.paths.ls_root);
+    let snapshot_path = format!("{snapshot_dir}/dev@{resolved_label}");
+    if !Path::new(&snapshot_path).exists() {
+        return Err(anyhow!("snapshot not found on LS: {snapshot_path}"));
+    }
+
+    let parent_path = parent.map(|p| format!("{snapshot_dir}/dev@{p}"));
+    if let Some(ref path) = parent_path {
+        if !Path::new(path).exists() {
+            return Err(anyhow!("parent snapshot not found on LS: {path}"));
+        }
+    }
+
+    let mut cmd = Command::new("btrfs");
+    if let Some(parent_path) = parent_path.as_deref() {
+        cmd.args(["send", "-p", parent_path, &snapshot_path]);
+    } else {
+        cmd.args(["send", &snapshot_path]);
+    }
+
+    let status = cmd
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .context("failed to run btrfs send")?;
+    if !status.success() {
+        return Err(anyhow!("btrfs send failed"));
+    }
+    Ok(())
 }
 
 fn ensure_label(label: &str) -> Result<()> {
-    let mut parts = label.split('-');
-    let year = parts
-        .next()
-        .ok_or_else(|| anyhow!("label must be YYYY-MM"))?;
-    let month = parts
-        .next()
-        .ok_or_else(|| anyhow!("label must be YYYY-MM"))?;
-    if parts.next().is_some() || year.len() != 4 || month.len() != 2 {
+    if !is_valid_label(label) {
         return Err(anyhow!("label must be YYYY-MM"));
+    }
+    Ok(())
+}
+
+fn ensure_age_keypair(private_path: &Path, public_path: &Path) -> Result<()> {
+    if !private_path.exists() {
+        let status = Command::new("age-keygen")
+            .args(["-o", private_path.to_str().unwrap_or_default()])
+            .status()
+            .context("failed to run age-keygen")?;
+        if !status.success() {
+            return Err(anyhow!("age-keygen failed"));
+        }
+    }
+
+    if !public_path.exists() {
+        let output = Command::new("age-keygen")
+            .args(["-y", private_path.to_str().unwrap_or_default()])
+            .output()
+            .context("failed to derive age public key")?;
+        if !output.status.success() {
+            return Err(anyhow!("age-keygen -y failed"));
+        }
+        fs::write(public_path, output.stdout)
+            .with_context(|| format!("failed to write public key: {}", public_path.display()))?;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let private_perm = fs::Permissions::from_mode(0o600);
+        fs::set_permissions(private_path, private_perm)
+            .with_context(|| format!("failed to set permissions on {}", private_path.display()))?;
+        let public_perm = fs::Permissions::from_mode(0o644);
+        fs::set_permissions(public_path, public_perm)
+            .with_context(|| format!("failed to set permissions on {}", public_path.display()))?;
+    }
+
+    Ok(())
+}
+
+fn is_valid_label(label: &str) -> bool {
+    let mut parts = label.split('-');
+    let year = match parts.next() {
+        Some(value) => value,
+        None => return false,
+    };
+    let month = match parts.next() {
+        Some(value) => value,
+        None => return false,
+    };
+    if parts.next().is_some() || year.len() != 4 || month.len() != 2 {
+        return false;
     }
     if !year.chars().all(|c| c.is_ascii_digit()) || !month.chars().all(|c| c.is_ascii_digit()) {
-        return Err(anyhow!("label must be YYYY-MM"));
+        return false;
     }
+    true
+}
+
+async fn ws_run_month(cfg: &Config, label: &str) -> Result<()> {
+    ensure_label(label)?;
+    let records = fetch_manifest_records_for_ws(cfg).await?;
+    let sorted_records = sort_records_by_ts(&records)?;
+
+    let decision = if sorted_records.is_empty() {
+        SnapshotDecision::Anchor
+    } else {
+        decide_snapshot_type(&sorted_records, PolicyInput::default())?
+    };
+
+    let parent_label = match decision {
+        SnapshotDecision::Anchor => None,
+        SnapshotDecision::Incremental => Some(latest_label_from_records(&sorted_records)?),
+    };
+
+    snapshot_from_cfg(cfg, label)?;
+    build_artifact(cfg, label, parent_label.as_deref())?;
+
+    match parent_label {
+        Some(parent) => println!("Run-month complete: incremental from {parent}"),
+        None => println!("Run-month complete: anchor"),
+    }
+    Ok(())
+}
+
+async fn ws_request(
+    cfg: &Config,
+    config_path: &str,
+    label: &str,
+    parent: Option<&str>,
+    auto_parent: bool,
+    ls_host: Option<String>,
+    ls_user: Option<String>,
+) -> Result<()> {
+    let resolved_label = resolve_label_for_ws_request(cfg, label).await?;
+    let mut parent_label = parent.map(|value| value.to_string());
+    if let Some(ref label) = parent_label {
+        ensure_label(label)?;
+    } else if auto_parent {
+        parent_label = find_latest_local_snapshot_label(&cfg.paths.snapshots, &resolved_label)?;
+    }
+
+    btrfs::ensure_dir(Path::new(&cfg.paths.snapshots))?;
+    let (host, user) = resolve_remote_target(cfg, ls_host, ls_user);
+
+    let mut send_child = if is_local_host(&host) {
+        spawn_local_ls_send(config_path, &resolved_label, parent_label.as_deref())?
+    } else {
+        spawn_remote_ls_send(&user, &host, &resolved_label, parent_label.as_deref())?
+    };
+
+    let send_stdout = send_child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow!("failed to capture ls send stdout"))?;
+
+    let mut recv_child = Command::new("btrfs")
+        .args(["receive", &cfg.paths.snapshots])
+        .stdin(Stdio::from(send_stdout))
+        .stderr(Stdio::inherit())
+        .spawn()
+        .context("failed to start btrfs receive")?;
+
+    let recv_status = recv_child.wait().context("failed to wait on btrfs receive")?;
+    let send_status = send_child.wait().context("failed to wait on ls send")?;
+
+    if !send_status.success() {
+        return Err(anyhow!("ls send failed"));
+    }
+    if !recv_status.success() {
+        return Err(anyhow!("btrfs receive failed"));
+    }
+
+    let snapshot_path = format!("{}/dev@{}", cfg.paths.snapshots, resolved_label);
+    if !Path::new(&snapshot_path).exists() {
+        return Err(anyhow!("received snapshot missing: {snapshot_path}"));
+    }
+
+    update_worktree_from_snapshot(cfg, &snapshot_path, &resolved_label)?;
+    Ok(())
+}
+
+async fn resolve_label_for_ws_request(cfg: &Config, label: &str) -> Result<String> {
+    if label != "latest" {
+        ensure_label(label)?;
+        return Ok(label.to_string());
+    }
+    let records = fetch_manifest_records_for_ws(cfg).await?;
+    if records.is_empty() {
+        return Err(anyhow!("manifest unavailable to resolve latest label"));
+    }
+    resolve_latest_label(&records)?
+        .ok_or_else(|| anyhow!("no label found in manifest"))
+}
+
+fn resolve_remote_target(
+    cfg: &Config,
+    ls_host: Option<String>,
+    ls_user: Option<String>,
+) -> (String, String) {
+    let default_user = std::env::var("USER").unwrap_or_else(|_| "chuck".to_string());
+    let host = ls_host
+        .or_else(|| cfg.remote.as_ref().and_then(|remote| remote.ls_host.clone()))
+        .unwrap_or_else(|| "localhost".to_string());
+    let user = ls_user
+        .or_else(|| cfg.remote.as_ref().and_then(|remote| remote.ls_user.clone()))
+        .unwrap_or(default_user);
+    (host, user)
+}
+
+fn is_local_host(host: &str) -> bool {
+    host == "localhost" || host == "127.0.0.1"
+}
+
+fn spawn_local_ls_send(config_path: &str, label: &str, parent: Option<&str>) -> Result<std::process::Child> {
+    let mut cmd = Command::new("dev-backup");
+    cmd.args(["--config", config_path, "ls", "send", label]);
+    if let Some(parent_label) = parent {
+        cmd.arg(parent_label);
+    }
+    let child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .context("failed to spawn local ls send")?;
+    Ok(child)
+}
+
+fn spawn_remote_ls_send(
+    user: &str,
+    host: &str,
+    label: &str,
+    parent: Option<&str>,
+) -> Result<std::process::Child> {
+    let target = format!("{user}@{host}");
+    let mut cmd = Command::new("ssh");
+    cmd.arg(target)
+        .arg("dev-backup")
+        .arg("--config")
+        .arg("/etc/dev-backup/config.toml")
+        .arg("ls")
+        .arg("send")
+        .arg(label);
+    if let Some(parent_label) = parent {
+        cmd.arg(parent_label);
+    }
+    let child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .context("failed to spawn remote ls send")?;
+    Ok(child)
+}
+
+fn snapshot_from_cfg(cfg: &Config, label: &str) -> Result<()> {
+    let snapshot_path = format!("{}/dev@{}", cfg.paths.snapshots, label);
+    if Path::new(&snapshot_path).exists() {
+        println!("Snapshot already exists: {snapshot_path}");
+        return Ok(());
+    }
+    btrfs::snapshot_readonly(&cfg.paths.dataset, &snapshot_path)?;
+    println!("Created snapshot {snapshot_path}");
+    Ok(())
+}
+
+async fn fetch_manifest_records_for_ws(cfg: &Config) -> Result<Vec<ManifestRecord>> {
+    let local_manifest = Path::new(&cfg.paths.ls_root).join("manifests/snapshots_v2.tsv");
+    if local_manifest.exists() {
+        let store = ManifestStore::new(&local_manifest);
+        return store.read_records();
+    }
+
+    let cloud = match cfg.cloud.as_ref() {
+        Some(cloud) => cloud,
+        None => return Ok(Vec::new()),
+    };
+
+    let client = R2Client::new(R2Config {
+        endpoint: cloud.endpoint.clone(),
+        bucket: cloud.bucket.clone(),
+        access_key: cloud.access_key.clone(),
+        secret_key: cloud.secret_key.clone(),
+    })
+    .await?;
+
+    let tmp_path = std::env::temp_dir().join(format!(
+        "dev-backup-manifest-{}.tsv",
+        OffsetDateTime::now_utc().unix_timestamp()
+    ));
+    client
+        .download_object(
+            "manifests/snapshots_v2.tsv",
+            tmp_path.to_str().unwrap_or_default(),
+        )
+        .await?;
+
+    let store = ManifestStore::new(&tmp_path);
+    store.read_records()
+}
+
+fn sort_records_by_ts(records: &[ManifestRecord]) -> Result<Vec<ManifestRecord>> {
+    let mut parsed = Vec::with_capacity(records.len());
+    for record in records {
+        let ts = OffsetDateTime::parse(&record.ts, &Rfc3339)
+            .with_context(|| format!("invalid timestamp: {}", record.ts))?;
+        parsed.push((ts, record.clone()));
+    }
+    parsed.sort_by_key(|(ts, _)| *ts);
+    Ok(parsed.into_iter().map(|(_, record)| record).collect())
+}
+
+fn latest_label_from_records(records: &[ManifestRecord]) -> Result<String> {
+    resolve_latest_label(records)?
+        .ok_or_else(|| anyhow!("no label found in manifest"))
+}
+
+fn find_latest_local_snapshot_label(
+    snapshots_root: &str,
+    exclude_label: &str,
+) -> Result<Option<String>> {
+    let mut candidates = Vec::new();
+    if !Path::new(snapshots_root).exists() {
+        return Ok(None);
+    }
+    for entry in fs::read_dir(snapshots_root)
+        .with_context(|| format!("failed to read snapshot root: {snapshots_root}"))?
+    {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = match name.to_str() {
+            Some(value) => value,
+            None => continue,
+        };
+        if let Some(label) = name.strip_prefix("dev@") {
+            if label == exclude_label {
+                continue;
+            }
+            if is_valid_label(label) {
+                candidates.push(label.to_string());
+            }
+        }
+    }
+    candidates.sort();
+    Ok(candidates.pop())
+}
+
+fn update_worktree_from_snapshot(cfg: &Config, snapshot_path: &str, label: &str) -> Result<()> {
+    let worktree = Path::new(&cfg.paths.dataset);
+    if worktree.exists() {
+        if btrfs::subvolume_exists(worktree.to_str().unwrap_or_default())? {
+            btrfs::subvolume_delete(worktree.to_str().unwrap_or_default())?;
+        } else {
+            let backup_name = format!(
+                "{}_backup_{}",
+                cfg.paths.dataset,
+                OffsetDateTime::now_utc().unix_timestamp()
+            );
+            fs::rename(worktree, &backup_name)
+                .with_context(|| format!("failed to move existing worktree to {backup_name}"))?;
+        }
+    }
+    btrfs::snapshot_writable(snapshot_path, worktree.to_str().unwrap_or_default())?;
+    println!("Working tree updated to dev@{label}");
     Ok(())
 }
 

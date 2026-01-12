@@ -1,0 +1,30 @@
+• Added age keypair generation to init ls and created integration tests for restore planning.
+
+  What changed
+
+  - init ls now creates an age keypair under /srv/btrfs-backups/dev/keys if missing in crates/dev-backup-
+    cli/src/main.rs.
+  - Added restore plan integration tests in crates/dev-backup-cli/tests/restore_plan.rs covering full
+    chain and parent‑present optimization.
+  - Added tempfile dev dependency for tests in crates/dev-backup-cli/Cargo.toml.
+  - Updated docs/config.example.toml with [remote] defaults.
+  - Refreshed AGENTS.md notes/testing guidance and next steps.
+
+  Files touched
+
+  - crates/dev-backup-cli/src/main.rs
+  - crates/dev-backup-cli/Cargo.toml
+  - crates/dev-backup-cli/tests/restore_plan.rs
+  - docs/config.example.toml
+  - AGENTS.md
+
+  Tests not run (would need cargo to fetch crates).
+
+  Next steps (optional):
+
+  1. Run cargo test to validate the new integration tests.
+  2. Add an ancestry check before btrfs send -p to avoid parent mismatch failures.
+
+Token usage: total=388,781 input=291,229 (+ 5,502,848 cached) output=97,552 (reasoning 49,088)
+To continue this session, run codex resume 019bb089-31af-7a23-8389-00506c6be82d
+

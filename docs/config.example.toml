@@ -12,3 +12,7 @@ secret_key = "<R2_SECRET_KEY>"
 [crypto]
 age_public_key = "age1..."
 age_private_key_path = "/srv/btrfs-backups/dev/keys/ls_dev_backup.key"
+
+[remote]
+ls_host = "localhost"
+ls_user = "chuck"

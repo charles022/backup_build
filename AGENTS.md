@@ -1,17 +1,17 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-The rebuild lives under `rust-rebuild/` and will become the only retained tree. The workspace is organized as a Cargo multi-crate setup:
-- `rust-rebuild/crates/dev-backup-cli` — CLI binary (`dev-backup`) and command wiring.
-- `rust-rebuild/crates/dev-backup-core` — config, manifest, and policy logic.
-- `rust-rebuild/crates/dev-backup-storage` — artifact parsing, crypto, and cloud stubs.
-- `rust-rebuild/crates/dev-backup-btrfs` — Btrfs subprocess wrappers.
-- `rust-rebuild/docs` — build and config templates.
-- `rust-rebuild/systemd` — service and timer units.
+This repository is a Rust Cargo workspace with multiple crates:
+- `crates/dev-backup-cli` — CLI binary (`dev-backup`) and orchestration.
+- `crates/dev-backup-core` — config, manifest, and policy logic.
+- `crates/dev-backup-storage` — artifact parsing, crypto helpers, and R2 client.
+- `crates/dev-backup-btrfs` — Btrfs subprocess wrappers.
+- `docs` — build/config templates.
+- `systemd` — unit and timer files for scheduled runs.
 
 ## Build, Test, and Development Commands
 Key commands for local development:
-- `cd rust-rebuild && cargo build --release` — build the CLI.
+- `cargo build --release` — build the CLI.
 - `sudo install -m 755 target/release/dev-backup /usr/local/bin/` — install the binary.
 - `sudo mkdir -p /etc/dev-backup && sudo cp docs/config.example.toml /etc/dev-backup/config.toml` — create config.
 - `sudo dev-backup --config /etc/dev-backup/config.toml init ls` — initialize LS layout + manifest.
@@ -29,15 +29,15 @@ No automated tests yet. Preferred additions: unit tests for manifest parsing and
 No established commit format. Use imperative, scoped summaries (for example `Implement artifact build pipeline`). PRs should list commands run and any system prerequisites (Btrfs, age, zstd, R2 credentials).
 
 ## Security & Configuration Tips
-- Keep secrets out of the repo; use `/etc/dev-backup/config.toml` and `rclone`/S3 credentials.
+- Keep secrets out of the repo; use `/etc/dev-backup/config.toml` for credentials.
 - LS private key should live under `/srv/btrfs-backups/dev/keys` and never be copied to WS.
 
 ## Notes
 - `dev-backup` expects a TOML config (default `/etc/dev-backup/config.toml`). Use `docs/config.example.toml` as the base.
-- R2 and age support are stubbed in `crates/dev-backup-storage/src/cloud.rs` and `crates/dev-backup-storage/src/crypto.rs`.
-- Btrfs wrappers in `crates/dev-backup-btrfs/src/lib.rs` are implemented for snapshot/send/receive via subprocess.
+- R2 integration is implemented in `crates/dev-backup-storage/src/cloud.rs` using the AWS S3 SDK.
+- Artifact build/restore uses streaming pipelines (`btrfs` → `zstd` → `age`) in `crates/dev-backup-cli/src/main.rs`.
 
 ## Next Steps
-1. Implement artifact build/restore/sync flows with streaming pipes (btrfs → zstd → age).
-2. Add R2 integration using an S3-compatible crate and wire sync push/pull.
-3. Expand ws run-month using the policy module + manifest pull.
+1. Implement `ws run-month` using the policy module + manifest pull.
+2. Implement `ls send` (stream `btrfs send` to WS) and a WS-side request helper.
+3. Add keypair generation to `init ls` and basic integration tests for restore planning.

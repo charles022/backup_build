@@ -82,4 +82,32 @@ impl ManifestStore {
         writer.flush().context("failed to flush manifest")?;
         Ok(())
     }
+
+    pub fn write_records(&self, records: &[ManifestRecord]) -> Result<()> {
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create manifest directory: {}", parent.display()))?;
+        }
+        let mut writer = csv::WriterBuilder::new()
+            .delimiter(b'\t')
+            .from_path(&self.path)
+            .with_context(|| format!("failed to create manifest: {}", self.path.display()))?;
+        writer
+            .write_record([
+                "ts",
+                "label",
+                "type",
+                "parent",
+                "bytes",
+                "sha256",
+                "local_path",
+                "object_key",
+            ])
+            .context("failed to write manifest header")?;
+        for record in records {
+            writer.serialize(record).context("failed to write manifest record")?;
+        }
+        writer.flush().context("failed to flush manifest")?;
+        Ok(())
+    }
 }

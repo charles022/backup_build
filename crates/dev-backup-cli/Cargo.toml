@@ -10,6 +10,7 @@ clap.workspace = true
 serde.workspace = true
 toml.workspace = true
 time.workspace = true
+tokio.workspace = true
 
 # Local crates
 [dependencies.dev-backup-core]

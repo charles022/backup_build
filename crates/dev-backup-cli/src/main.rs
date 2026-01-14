@@ -18,11 +18,11 @@ struct Cli {
     #[arg(long, default_value = "/etc/dev-backup/config.toml")]
     config: String,
     #[command(subcommand)]
-    command: Command,
+    command: CliCommand,
 }
 
 #[derive(Subcommand)]
-enum Command {
+enum CliCommand {
     Init {
         #[arg(value_enum)]
         target: InitTarget,
@@ -106,13 +106,13 @@ enum LsCommand {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Init { target } => init(&cli.config, target),
-        Command::Snapshot { label } => snapshot(&cli.config, &label),
-        Command::Artifact { action } => artifact(&cli.config, action),
-        Command::Restore { action } => restore(&cli.config, action),
-        Command::Sync { action } => sync(&cli.config, action).await,
-        Command::Ws { action } => ws(&cli.config, action).await,
-        Command::Ls { action } => ls(&cli.config, action),
+        CliCommand::Init { target } => init(&cli.config, target),
+        CliCommand::Snapshot { label } => snapshot(&cli.config, &label),
+        CliCommand::Artifact { action } => artifact(&cli.config, action),
+        CliCommand::Restore { action } => restore(&cli.config, action),
+        CliCommand::Sync { action } => sync(&cli.config, action).await,
+        CliCommand::Ws { action } => ws(&cli.config, action).await,
+        CliCommand::Ls { action } => ls(&cli.config, action),
     }
 }
 

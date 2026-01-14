@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use aws_config::BehaviorVersion;
 use aws_credential_types::Credentials;
 use aws_sdk_s3::config::Region;
 use aws_sdk_s3::primitives::ByteStream;
@@ -30,7 +31,7 @@ impl R2Client {
             "dev-backup",
         );
         let shared = aws_credential_types::provider::SharedCredentialsProvider::new(creds);
-        let sdk_config = aws_config::from_env()
+        let sdk_config = aws_config::defaults(BehaviorVersion::latest())
             .region(Region::new("auto"))
             .endpoint_url(config.endpoint)
             .credentials_provider(shared)

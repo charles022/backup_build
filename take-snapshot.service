@@ -1,0 +1,16 @@
+[Unit]
+Description=Daily Btrfs Snapshot
+# Ensure network and local fs are ready, though local-fs.target is implied for standard services.
+After=local-fs.target
+
+[Service]
+Type=oneshot
+# Run as root so 'sudo' commands inside the script work without password/prompt.
+User=root
+# Set HOME to the user's home directory so the script finds the correct config/subvolumes (e.g. ~/code).
+Environment="HOME=/home/chuck"
+# Path to the script
+ExecStart=/home/chuck/.local/bin/take_snapshot.sh
+
+[Install]
+WantedBy=multi-user.target

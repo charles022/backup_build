@@ -18,15 +18,6 @@ Convert a directory to a btrfs subvolume (uses `cp --reflink` for efficiency):
 ./convert_to_subvolume.sh /path/to/dir
 ```
 
-Run the test harness:
-
-```bash
-./test_convert_to_subvolume.sh
-```
-
-The test includes an "in-use directory" case (it will start a `tail -f`
-and confirm the converter refuses to run while the directory is active).
-
 ## Snapshot Verification
 
 To list all created snapshots:

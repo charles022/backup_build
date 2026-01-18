@@ -14,10 +14,6 @@ The core problem it solves is migrating standard directories to subvolumes to en
     *   Checks if a directory is suitable for conversion (on Btrfs, not already a subvolume, not in use).
     *   Uses `rsync --clone-dest` to efficiently "copy" data to a new subvolume using reflinks (preserving space).
     *   Swaps the old directory with the new subvolume.
-*   **`test_convert_to_subvolume.sh`**: A comprehensive test suite that verifies:
-    *   Argument handling and error states.
-    *   Detection of "in-use" directories (using `lsof`).
-    *   Successful conversion and data integrity checks.
 
 ## Usage & Commands
 
@@ -44,13 +40,6 @@ To convert a specific directory to a subvolume:
 ```bash
 ./convert_to_subvolume.sh /path/to/directory
 ```
-
-**3. Run Tests**
-To verify the tools are working correctly on your system:
-```bash
-./test_convert_to_subvolume.sh
-```
-*Note: This creates a temporary test directory in the current directory or `$HOME` to run safe experiments.*
 
 ## Development Conventions
 *   **Safety**: Scripts enable strict error checking (`set -e` or `set -euo pipefail`).

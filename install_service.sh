@@ -6,12 +6,33 @@ SERVICE_FILE="${SERVICE_NAME}.service"
 TIMER_FILE="${SERVICE_NAME}.timer"
 INSTALL_DIR="/etc/systemd/system"
 
-# Check if the snapshot script exists where expected
-TARGET_SCRIPT="$HOME/.local/bin/take_snapshot.sh"
-if [ ! -f "$TARGET_SCRIPT" ]; then
-    echo "Warning: $TARGET_SCRIPT not found."
-    echo "Please ensure 'take_snapshot.sh' is installed to ~/.local/bin/ before the service runs."
-fi
+# Install scripts to ~/.local/bin with backup
+SCRIPTS_TO_INSTALL=("take_snapshot.sh" "convert_to_subvolume.sh" "prune_snapshots.py")
+LOCAL_BIN="$HOME/.local/bin"
+BACKUP_DIR="$LOCAL_BIN/old"
+
+mkdir -p "$LOCAL_BIN"
+
+for script in "${SCRIPTS_TO_INSTALL[@]}"; do
+    # Check if source file exists in current directory
+    if [ -f "$script" ]; then
+        target="$LOCAL_BIN/$script"
+        
+        # Backup existing file if it exists
+        if [ -f "$target" ]; then
+            mkdir -p "$BACKUP_DIR"
+            timestamp=$(date +%Y%m%d_%H%M%S)
+            echo "Backing up existing $script to $BACKUP_DIR/$script-$timestamp"
+            mv "$target" "$BACKUP_DIR/$script-$timestamp"
+        fi
+        
+        echo "Installing $script to $LOCAL_BIN..."
+        cp "$script" "$target"
+        chmod +x "$target"
+    else
+        echo "Warning: Source file '$script' not found in current directory. Skipping installation."
+    fi
+done
 
 echo "Installing systemd service and timer..."
 

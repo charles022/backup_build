@@ -27,6 +27,14 @@ A utility script to convert a standard directory to a Btrfs subvolume.
     3.  Reflinks data from the backup to the new subvolume (instant copy, no extra space used).
     4.  Removes the backup upon success.
 
+### `prune_snapshots.py`
+Manages snapshot retention.
+*   **Usage**: `./prune_snapshots.py`
+*   **Policy**:
+    *   Keeps all snapshots from the last 30 days.
+    *   For snapshots older than 30 days, keeps the earliest snapshot of each month.
+    *   Deletes all others.
+
 ### `install_service.sh`
 Sets up the systemd timer for daily snapshots.
 *   **Usage**: `./install_service.sh`
@@ -42,8 +50,8 @@ Sets up the systemd timer for daily snapshots.
     Copy the core scripts to your local bin directory (required for the systemd service):
     ```bash
     mkdir -p ~/.local/bin
-    cp take_snapshot.sh convert_to_subvolume.sh ~/.local/bin/
-    chmod +x ~/.local/bin/take_snapshot.sh ~/.local/bin/convert_to_subvolume.sh
+    cp take_snapshot.sh convert_to_subvolume.sh prune_snapshots.py ~/.local/bin/
+    chmod +x ~/.local/bin/take_snapshot.sh ~/.local/bin/convert_to_subvolume.sh ~/.local/bin/prune_snapshots.py
     ```
 
 3.  **Setup Automation**:

@@ -11,6 +11,7 @@ User=root
 Environment="HOME=/home/chuck"
 # Path to the script
 ExecStart=/home/chuck/.local/bin/take_snapshot.sh
+ExecStart=/home/chuck/.local/bin/prune_snapshots.py
 
 [Install]
 WantedBy=multi-user.target

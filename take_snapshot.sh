@@ -33,8 +33,10 @@ done
 
 # create directories
 for subvolume in "${subvolume_list[@]}"; do
-    base=$(basename -- "$subvolume")
-    sudo mkdir -p /snapshot/$base
+    base="${subvolume%/}"
+    base="${base#/}"
+    base="${base//\//-}"
+    sudo mkdir -p "/snapshot/$base"
 done
 
 sudo chmod 700 /snapshot
@@ -42,7 +44,9 @@ sudo chmod 700 /snapshot
 # ensure subvolumes are present
 for subvolume in "${subvolume_list[@]}"; do
 
-    base=$(basename -- "$subvolume")
+    base="${subvolume%/}"
+    base="${base#/}"
+    base="${base//\//-}"
     snapshot="/snapshot/$base/$base-$(date +%Y%m%d_%H%M)"
 
     ###### ensure we have the subvolume ######
